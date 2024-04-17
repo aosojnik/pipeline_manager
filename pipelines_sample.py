@@ -28,5 +28,5 @@ PIPELINES = {
                 'output': 'rendr_system_test_temperature'
             }
         }
-    }, 
+    },
 }
