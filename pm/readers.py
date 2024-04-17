@@ -139,11 +139,11 @@ class JSONReader(Reader):
                 data = json.loads(_)
             for data_point in data:
                 if self.location_id == data_point['location_id'] or data_point['location_id'] == '':
-                    timestamp, source_id = data_point['data']['timestamp'], data_point['source_id']
-                    timestep = data_point['data']['timestep']
+                    timestamp, source_id = data_point['timestamp'], data_point['source_id']
+                    timestep = data_point['timestep']
                     if source_id not in self._DATA:
                         self._DATA[source_id] = {}
-                    measurements = data_point['data']['values']
+                    measurements = data_point['values']
                     measurement_timestep = timestep / len(measurements)
                     for i, measurement in enumerate(measurements):
                         m_timestamp = timestamp + measurement_timestep * i
