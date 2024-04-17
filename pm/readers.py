@@ -94,7 +94,7 @@ class CSVReader(Reader):
     def query(self, source_id, start_time, end_time):
         pass
 
-class JSONReader(Reader):
+class JSONReader__SAAM(Reader):
     def __init__(self, location_id, targets):
         super().__init__(location_id)
         self.targets = targets
@@ -111,14 +111,43 @@ class JSONReader(Reader):
             for data_point in data:
                 if self.location_id == data_point['LocationId']:
                     timestamp, source_id = data_point['Data']['Timestamp'] / 1000, data_point['SourceId'] # Data points in DB are stored with millisecond resolution
-                    timespan = data_point['Data']['Timestep']
+                    timestep = data_point['Data']['Timestep']
                     if source_id not in self._DATA:
                         self._DATA[source_id] = {}
                     measurements = data_point['Data']['Measurements']
-                    measurement_timespan = timespan / len(measurements)
+                    measurement_timestep = timestep / len(measurements)
                     for i, measurement in enumerate(measurements):
-                        m_timestamp = timestamp + measurement_timespan * i
-                        self._DATA[source_id][m_timestamp] = (m_timestamp, measurement_timespan, measurement)
+                        m_timestamp = timestamp + measurement_timestep * i
+                        self._DATA[source_id][m_timestamp] = (m_timestamp, measurement_timestep, measurement)
+
+    def query(self, source_id, start_time, end_time):
+        pass
+
+class JSONReader(Reader):
+    def __init__(self, location_id, targets):
+        super().__init__(location_id)
+        self.targets = targets
+
+    def is_online(self):
+        return False
+
+    def load(self):
+        for filename in self.targets:
+            
+            with open(filename) as f:
+                _ = f.read().replace('\x13', '')
+                data = json.loads(_)
+            for data_point in data:
+                if self.location_id == data_point['location_id'] or data_point['location_id'] == '':
+                    timestamp, source_id = data_point['data']['timestamp'], data_point['source_id']
+                    timestep = data_point['data']['timestep']
+                    if source_id not in self._DATA:
+                        self._DATA[source_id] = {}
+                    measurements = data_point['data']['values']
+                    measurement_timestep = timestep / len(measurements)
+                    for i, measurement in enumerate(measurements):
+                        m_timestamp = timestamp + measurement_timestep * i
+                        self._DATA[source_id][m_timestamp] = (m_timestamp, measurement_timestep, measurement)
 
     def query(self, source_id, start_time, end_time):
         pass
@@ -214,8 +243,8 @@ class CachedReader(Reader):
         if not os.path.exists(f'cache/{self.cache_token}.json'):
             dicts = []
             for source_id in self.reader._DATA:
-                for timestamp, (timestamp, timespan, value) in self.reader._DATA[source_id].items():
-                    dicts.append(self.make_dict(source_id, timestamp, timespan, value))
+                for timestamp, (timestamp, timestep, value) in self.reader._DATA[source_id].items():
+                    dicts.append(self.make_dict(source_id, timestamp, timestep, value))
             filename = f"cache/{self.cache_token}.json"
             with open(filename, 'w') as f:
                 s = json.dumps(dicts).replace('\x13', '')
