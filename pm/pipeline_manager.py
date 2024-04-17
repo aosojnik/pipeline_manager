@@ -1,6 +1,4 @@
 import datetime
-import json
-import re
 import sys, os, traceback
 from importlib import import_module
 
@@ -9,8 +7,6 @@ import pytz
 from .models.lib import proDEX
 from .models.lib.utils import model_type, probabilify, sample_from_distribution
 
-from . import models
-from . import pipelines
 from . import features
 
 from .utils import get_callable, human_time, merge_intervals, f_timestamp
@@ -91,11 +87,11 @@ class PipelineManager(DataHandler):
             return "Model not found: " + self.missing
         pass
 
-    def __init__(self, location_id, data_input, data_output, pipeline_name, profile={}, forced_time=None, verbosity=0, force_calculate=[]):
+    def __init__(self, location_id, data_input, data_output, pipeline, profile={}, forced_time=None, verbosity=0, force_calculate=[]):
         super().__init__(location_id, data_input, data_output, profile=profile, force_calculate=force_calculate, verbosity=verbosity)
 
-        self.pipeline_name = pipeline_name
-        self.pipeline = pipelines.PIPELINES[pipeline_name]
+        self.pipeline = pipeline
+        self.pipeline_name = pipeline['name']
         
         self.forced_time = forced_time
 
@@ -131,13 +127,13 @@ class PipelineManager(DataHandler):
         return time
 
     def pipeline_dependencies(self, end_time):
-        dependencies = {'raw': {}, 'calculated': {}, 'model': {}}
-        missing = {'raw': [], 'calculated': [], 'model': []}
+        dependencies = {'raw': {}, 'calculated': {}}
+        missing = {'raw': [], 'calculated': []}
         
         pipeline_window = self.pipeline_window()
 
-        for model in [m for m in self.pipeline['models']['situation'] + [self.pipeline['models']['coaching'], self.pipeline['models']['rendering']] if m]:
-            self.request_dependencies(model['output'], end_time - pipeline_window, end_time, dependencies, missing)
+        for output in self.pipeline['outputs']:
+            self.request_dependencies(output, end_time - pipeline_window, end_time, dependencies, missing)
 
         if 'parameters' in self.pipeline:
             for parameter in self.pipeline['parameters']:
@@ -145,167 +141,119 @@ class PipelineManager(DataHandler):
 
         return dependencies, missing
 
-    def run_models(self, runtime):
-        window = self.pipeline_window()
 
-        model_outputs = {}
-        try:
-            self.print(f"Importing DEX models", 3)
-            MODELS = [(m, import_module('.models.' + m['name'], 'pm')) for m in self.pipeline['models']['situation'] + [self.pipeline['models']['coaching'], self.pipeline['models']['rendering']] if m]
-        except ModuleNotFoundError as e: 
-            raise PipelineManager.ModelNotFoundError(e.name)
-        else:
-            for model, m in MODELS:
-                loaded = self.data_input[model['output'], runtime - window:runtime]
-                if loaded and not model['output'] in self.force_calculate:
-                    self.print(f"Model {model['name']} output found in database.", 2)
-                    model_outputs[model['output']] = loaded[-1][2]
-                else:
-                    model = self._MODELS[model['output']]
-                    self.print(f"Running model {model['name']}", 2)
-                    values = {}
-                    all_outputs = True
-                    for source_info in model['inputs']:
-                        if type(source_info) == tuple:
-                            source_id = source_info[0]
-                        else:
-                            source_id = source_info
-                        try:
-                            values[source_id] = self.data_input[source_id, runtime][0][2]
-                        except:
-                            all_outputs = False
-                    if all_outputs:
-                        # Use the proDEX library to calculate the selected output criteria
-                        self.print(f"DEX model inputs are {values}", 3)
+    # def run_models(self, runtime):
+    #     window = self.pipeline_window()
 
-                        dex = getattr(m, model['output'])
+    #     model_outputs = {}
+    #     try:
+    #         self.print(f"Importing DEX models", 3)
+    #         MODELS = [(m, import_module('.models.' + m['name'], 'pm')) for m in self.pipeline['models']['situation'] + [self.pipeline['models']['coaching'], self.pipeline['models']['rendering']] if m]
+    #     except ModuleNotFoundError as e: 
+    #         raise PipelineManager.ModelNotFoundError(e.name)
+    #     else:
+    #         for model, m in MODELS:
+    #             loaded = self.data_input[model['output'], runtime - window:runtime]
+    #             if loaded and not model['output'] in self.force_calculate:
+    #                 self.print(f"Model {model['name']} output found in database.", 2)
+    #                 model_outputs[model['output']] = loaded[-1][2]
+    #             else:
+    #                 model = self._MODELS[model['output']]
+    #                 self.print(f"Running model {model['name']}", 2)
+    #                 values = {}
+    #                 all_outputs = True
+    #                 for source_info in model['inputs']:
+    #                     if type(source_info) == tuple:
+    #                         source_id = source_info[0]
+    #                     else:
+    #                         source_id = source_info
+    #                     try:
+    #                         values[source_id] = self.data_input[source_id, runtime][0][2]
+    #                     except:
+    #                         all_outputs = False
+    #                 if all_outputs:
+    #                     # Use the proDEX library to calculate the selected output criteria
+    #                     self.print(f"DEX model inputs are {values}", 3)
+
+    #                     dex = getattr(m, model['output'])
                         
-                        if model_type(dex) == 'crisp':
-                            output = proDEX.classify({getattr(m, source_id): value for source_id, value in values.items()}, dex)
-                            # Store the calculated criteria into the database and cache
-                        elif model_type(dex) == 'probabilistic':
-                            inputs = {
-                                getattr(m, source_id): probabilify(value,  getattr(m, source_id)) for source_id, value in values.items()
-                            }
-                            output_distribution = proDEX.classify(inputs, dex)
+    #                     if model_type(dex) == 'crisp':
+    #                         output = proDEX.classify({getattr(m, source_id): value for source_id, value in values.items()}, dex)
+    #                         # Store the calculated criteria into the database and cache
+    #                     elif model_type(dex) == 'probabilistic':
+    #                         inputs = {
+    #                             getattr(m, source_id): probabilify(value,  getattr(m, source_id)) for source_id, value in values.items()
+    #                         }
+    #                         output_distribution = proDEX.classify(inputs, dex)
 
-                            output = sample_from_distribution(output_distribution)
+    #                         output = sample_from_distribution(output_distribution)
 
-                        self.data_output.add_entries(model['output'], [(runtime, window, output)])
-                        self.data_input.add_entries(model['output'], [(runtime, window, output)])
-                        model_outputs[model['output']] = output
+    #                     self.data_output.add_entries(model['output'], [(runtime, window, output)])
+    #                     self.data_input.add_entries(model['output'], [(runtime, window, output)])
+    #                     model_outputs[model['output']] = output
 
-                        self.print(f"Model {model['name']} finished successfully with output '{output}'.", 3)
-                    else:
-                        self.print(f"Model {model['name']} failed due to incomplete data!", 3)
+    #                     self.print(f"Model {model['name']} finished successfully with output '{output}'.", 3)
+    #                 else:
+    #                     self.print(f"Model {model['name']} failed due to incomplete data!", 3)
         
-            return model_outputs
+    #         return model_outputs
 
     def run(self):
         self.print(f"---- RUNNING PIPELINE {self.pipeline_name} FOR LOCATION {self.location_id} ----", 1)
         self.print(f"Starting at {datetime.datetime.utcnow()}", 2)
-        notification_message = {
-                    'locationId': self.location_id,
-                    'pipelineName': self.pipeline_name,
-                    'coachingAction': '',
-                    'parameters': {}
-        }
         try:
             runtime = self.calculate_runtime()
             self.print(f"Calculated runtime {f_timestamp(runtime)}.", 1)
-            notification_message['timestamp'] = runtime
             self.data_output.set_descriptor(f"{self.location_id}_{f_timestamp(runtime)}")
-
-
             try:
                 self.print("Requesting dependencies from the database...", 2)
 
                 self.print(f"Starting data loading at {datetime.datetime.utcnow()}", 2)
-                #dependencies, missing = self.pipeline_dependencies(runtime)
                 missing = self.smart_request_dependencies(runtime)
                 self.print(f"Data loading done at {datetime.datetime.utcnow()}", 2)
                 
                 self.print("Dependencies received.", 2)
-                #self.print(f"Dependencies: {dependencies}", 5)
                 self.print(f"Missing: {missing}", 5)
             except Exception as e:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 error_message = f"{exc_type}: {str(e)}, {fname}, {exc_tb.tb_lineno}\n{traceback.format_exc()}"
 
-                notification_message.update({
-                    'status': "DB_CONNECTION_ERROR",
-                    'errorMessage': error_message,
-                    'warnings': self.warnings,
-                })
                 self.print(f"FAILED TO CONNECT TO DATABASE, EXECUTION DISRUPTED")
                 self.print(e, 2)
-                return notification_message
+                raise e
 
             self.print("Calculated missing requirements.", 2)
             try:
                 self.calculate_unmet(missing)
-                self.print("Calculated unmet model inputs.", 2)
+                self.print("Calculated unmet  inputs.", 2)
             except Exception as e:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 error_message = f"{exc_type}: {str(e)}, {fname}, {exc_tb.tb_lineno}\n{traceback.format_exc()}"
-                notification_message.update({
-                    'status': "FEATURE_ERROR",
-                    'errorMessage': error_message,
-                    'warnings': self.warnings,
-                })
                 self.print(f"FEATURE CALCULATION ERROR, EXECUTION DISRUPTED")
                 self.print(e, 2)
-                return notification_message
+                raise e
 
-            try:
-                self.print("Starting model execution...", 2)
-                model_outputs = self.run_models(runtime)
-                self.print("Models executed.", 2)
-            except Exception as e:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
-                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                error_message = f"{exc_type}: {str(e)}, {fname}, {exc_tb.tb_lineno}\n{traceback.format_exc()}"
-
-                notification_message.update({
-                    'status': "MODEL_ERROR",
-                    'errorMessage': error_message,
-                    'warnings': self.warnings,
-                })
-                self.print(f"ERROR RUNNING MODELS, EXECUTION DISRUPTED")
-                self.print(e, 2)
-                return notification_message
-
-            self.print(f"Outputs of the models: \033[1;32;49m{model_outputs}\u001b[0m", 1)
-
-            notification_message.update({
-                'coachingAction': model_outputs[self.pipeline['models']['coaching']['output']],
-                'status': "SUCCESS",
-                'parameters': {} if 'parameters' not in self.pipeline else {p: self.data_input[p, runtime][0][2] for p in self.pipeline['parameters']},
-                'warnings': self.warnings,
-            })
-            
-            if self.pipeline['models']['rendering']:
-                notification_message['renderingAction'] = model_outputs[self.pipeline['models']['rendering']['output']]
-
-            self.print(notification_message, 4)
             self.print(f"PIPELINE EXECUTION SUCCESSFUL")
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             error_message = f"{exc_type}: {str(e)}, {fname}, {exc_tb.tb_lineno}\n{traceback.format_exc()}"
 
-            notification_message.update({
-                'status': "UNKNOWN_ERROR",
-                'errorMessage': error_message,
-                'warnings': self.warnings,
-            })
             self.print(f"UNKNOWN ERROR, EXECUTION DISRUPTED")
             self.print(e, 2)
-        finally:
-            self.print(f"Execution done at {datetime.datetime.utcnow()}", 2)
-            return notification_message
+            raise e
+        pipeline_outputs = []
+        for output in self.pipeline['outputs']:
+            pipeline_outputs.append({
+                'output': output,
+                'values': self.data_input[output, runtime]
+            })
+
+        self.print(f"Outputs of the models: \033[1;32;49m{pipeline_outputs}\u001b[0m", 1)
+        self.print(f"Execution done at {datetime.datetime.utcnow()}", 2)
+        return pipeline_outputs
 
     def generate_feature_dependency(self):
         # Calculate feature dependency hierarchy
@@ -332,21 +280,22 @@ class PipelineManager(DataHandler):
                     in_node = recurse_dependency(in_source_id)
                     node.add_dependency(in_node)
             elif f_type == 'model':
-                model = self._MODELS[source_id]
+                pass
+                # ------------------ DEPRECATED ------------------
+                # model = self._MODELS[source_id]
 
-                for inpt in model['inputs']:
-                    if isinstance(inpt, tuple):
-                        in_source_id = inpt[0]
-                    else:
-                        in_source_id = inpt
-                    in_node = recurse_dependency(in_source_id)
-                    node.add_dependency(in_node)
+                # for inpt in model['inputs']:
+                #     if isinstance(inpt, tuple):
+                #         in_source_id = inpt[0]
+                #     else:
+                #         in_source_id = inpt
+                #     in_node = recurse_dependency(in_source_id)
+                #     node.add_dependency(in_node)
             return node                    
 
-        for model in [m for m in self.pipeline['models']['situation'] + [self.pipeline['models']['coaching'], self.pipeline['models']['rendering']] if m]:
-            node = recurse_dependency(model['output'])
+        for output in self.pipeline['outputs']:
+            node = recurse_dependency(output)
             root.add_dependency(node)
-
 
         if 'parameters' in self.pipeline:
             for parameter in self.pipeline['parameters']:
@@ -400,35 +349,37 @@ class PipelineManager(DataHandler):
                         recursive_dependency(in_source_id, time + f_window - in_window, time + f_window, node)
                     time += f_window
             elif f_type == 'model':
-                # Model dependency
-                model = self._MODELS[source_id]
+                pass
+                # -------------- DEPERECATED ------------
+                # # Model dependency
+                # model = self._MODELS[source_id]
 
-                # TODO Make this work also for the Feature calculator
-                pipeline_window = human_time(self.pipeline['recurrence'] if isinstance(self.pipeline['recurrence'], str) else self.pipeline['recurrence']['period'])
+                # # TODO Make this work also for the Feature calculator
+                # pipeline_window = human_time(self.pipeline['recurrence'] if isinstance(self.pipeline['recurrence'], str) else self.pipeline['recurrence']['period'])
 
-                node = DependencyNode.create_node(source_id, start_time, end_time)
-                dependee.add_dependency(node)
+                # node = DependencyNode.create_node(source_id, start_time, end_time)
+                # dependee.add_dependency(node)
 
-                for inpt in model['inputs']:
-                    if isinstance(inpt, tuple):
-                        source_id = inpt[0]
-                        window = human_time(inpt[1])
-                    else:
-                        source_id = inpt
-                        window = pipeline_window
-                    # TODO Reslove input timing inconsistencies
-                    recursive_dependency(source_id, start_time, end_time, node)
+                # for inpt in model['inputs']:
+                #     if isinstance(inpt, tuple):
+                #         source_id = inpt[0]
+                #         window = human_time(inpt[1])
+                #     else:
+                #         source_id = inpt
+                #         window = pipeline_window
+                #     # TODO Reslove input timing inconsistencies
+                #     recursive_dependency(source_id, start_time, end_time, node)
 
         start = end - self.pipeline_window()
 
         root = DependencyNode.create_node('@', start, end) # @ represents the entire pipeline
 
-        for model in [m for m in self.pipeline['models']['situation'] + [self.pipeline['models']['coaching'], self.pipeline['models']['rendering']] if m]:
-            node = recursive_dependency(model['output'], start, end, root)
+        for output in self.pipeline['outputs']:
+            recursive_dependency(output, start, end, root)
 
         if 'parameters' in self.pipeline:
             for parameter in self.pipeline['parameters']:
-                node = recursive_dependency(parameter, start, end, root)
+                recursive_dependency(parameter, start, end, root)
         
         return root
 
@@ -442,9 +393,9 @@ class PipelineManager(DataHandler):
             if d != 0:
                 by_depth[d] = by_depth.get(d, set()) | {s}
 
-        pipeline_dependency = self.generate_time_dependency(runtime)
+        self.generate_time_dependency(runtime)
 
-        missing = {'calculated': {}, 'model': {}}
+        missing = {}
 
         for depth in sorted(by_depth.keys()):
             for source_id in by_depth[depth]:
@@ -467,8 +418,8 @@ class PipelineManager(DataHandler):
                         if self.data_input[source_id, unmet_node.start_time:unmet_node.end_time] and source_id not in self.force_calculate:
                             unmet_node.met = True
                         else:
-                            if source_id not in missing[f_type]:
-                                missing[f_type][source_id] = set()
-                            missing[f_type][source_id].add( (unmet_node.start_time, unmet_node.end_time) )
+                            if source_id not in missing:
+                                missing[source_id] = set()
+                            missing[source_id].add( (unmet_node.start_time, unmet_node.end_time) )
                 
         return missing

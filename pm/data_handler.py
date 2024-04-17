@@ -6,7 +6,6 @@ import sys, traceback
 from .utils import human_time, get_callable, merge_intervals, align_start_time, f_timestamp
 
 from . import features
-from . import pipelines
 
 class DataHandler:
     class FeatureCalculationError(Exception):
@@ -42,14 +41,6 @@ class DataHandler:
         self.load_profile()
 
         self.current_calculation = None
-        DataHandler.__WARNER = self
-
-        # TODO Load models from all pipelines
-        self._MODELS = {
-            model['output']: model
-            for _, pipeline in pipelines.PIPELINES.items()
-            for model in pipeline['models']['situation'] + [pipeline['models']['coaching'], pipeline['models']['rendering']] if model
-        }
 
     def load_profile(self):
         # Add time zone into profile if missing
@@ -102,82 +93,7 @@ class DataHandler:
             pass
 
     def s_type(self, source_id):
-        return 'model' if source_id in self._MODELS else ('calculated' if source_id in features.FEATURES else 'raw')
-
-    def calculate_dependencies(self, source_id, start_time, end_time, dependencies):
-        #
-        # -------------------- DEPRECATED --------------------
-        #
-        #raise Exception("No longer used")
-        def dependency(source_id, start, end):
-            typ = self.s_type(source_id)
-            if source_id not in dependencies[typ]:
-                dependencies[typ][source_id] = set()
-            dependencies[typ][source_id].add( (start, end) )
-
-        typ = self.s_type(source_id)
-        self.print(f"Calculating dependencies for {source_id} ({typ})...", 5)
-        if source_id in dependencies[typ] and (start_time, end_time) in dependencies[typ][source_id]:
-            # Dependency has already been added
-            pass
-        else:
-            window = end_time - start_time
-            if typ == 'raw':
-                # Sensor data is requested in a chunk
-                dependency(source_id, start_time, end_time)
-            elif typ == 'calculated':
-                # Calculated features are broken into intervals based on their own windows
-                definition = features.FEATURES[source_id]
-                f_window = human_time(definition['window'])
-
-                # If a feature has a window of 0, it can calculate the entire window at once
-                # This should generally be features that are calculated from raw data, i.e., 
-                # features that fill missing values
-                if f_window == 0:
-                    f_window = window
-
-                time = start_time
-
-                while time + f_window <= end_time: # Assume perfect divisibility of intervals
-                    dependency(source_id, time, time + f_window)
-
-                    # Recursively continue
-                    for inpt in definition['inputs']:
-                        if isinstance(inpt, tuple):
-                            in_source_id = inpt[0]
-                            in_window = human_time(inpt[1])
-                        else:
-                            in_source_id = inpt
-                            in_window = f_window
-
-                        self.calculate_dependencies(in_source_id, time + f_window - in_window, time + f_window, dependencies)
-
-                    time += f_window
-            else:
-                # Missing model dependency
-                model = self._MODELS[source_id]
-                source_id = model['output']
-
-                # TODO Make this work also for the Feature calculator
-                pipeline_window = human_time(self.pipeline['recurrence'] if isinstance(self.pipeline['recurrence'], str) else self.pipeline['recurrence']['period'])
-                pipeline_offset = human_time(self.pipeline['recurrence'].get('offset', '0h')) if isinstance(self.pipeline['recurrence'], dict) else 0
-
-                # time = align_start_time(start_time, pipeline_window, pipeline_offset)
-                # print(f_timestamp(time + pipeline_window), f_timestamp(end_time))
-                # while time + pipeline_window <= end_time:
-                dependency(source_id, start_time, end_time)
-
-                for inpt in model['inputs']:
-                    if isinstance(inpt, tuple):
-                        source_id = inpt[0]
-                        window = human_time(inpt[1])
-                    else:
-                        source_id = inpt
-                        window = pipeline_window
-                    # TODO Reslove input timing inconsistencies
-                    self.calculate_dependencies(source_id, start_time, end_time, dependencies)
-                    
-                    # time += pipeline_window
+        return 'calculated' if source_id in features.FEATURES else 'raw'
 
     def request_dependencies(self, source_id, start_time, end_time, dependencies, missings, force_fetch=False):
         def dependency(start, end):
@@ -261,28 +177,8 @@ class DataHandler:
                     
                     # time += pipeline_window
 
-    def query_dependencies(self, dependencies):
-        raise Exception("No longer used")
-        missing = {'raw': {}, 'calculated': {}, 'model': {}}
-        for source_type in ['raw', 'calculated', 'model']:
-            for source_id, intervals in sorted(list(dependencies[source_type].items())):
-                merged = merge_intervals(intervals)
-                for start_time, end_time in merged:
-                    # Query only raw data, stored features and model outputs (always stored)
-                    if source_type != 'calculated' or (features.FEATURES[source_id].get('store', False) and not self.force_calculate):
-                        self.query_db(source_id, start_time, end_time)
-                if source_type != 'raw':
-                    for requested_start, requested_end in intervals:
-                        if (source_id, requested_end) not in self.data_input:
-                            if source_id not in missing[source_type]:
-                                missing[source_type][source_id] = set()
-                            missing[source_type][source_id].add((requested_start, requested_end))
-        return missing
-
     def calculate_unmet(self, missing, force_store=set()):
-        
         def resolve(source_id, start_time, end_time):
-            source_type = self.s_type(source_id)
             feature = features.FEATURES[source_id]
             window = human_time(feature['window'])
             if window == 0:
@@ -340,10 +236,10 @@ class DataHandler:
                 # the database are not necessary
                 self.print(f"Storing feature {source_id} into the cache.", 4)  
                 self.data_input.add_entries(source_id, data_points)
-                if (time - window, time) in missing['calculated'][source_id]:
-                    missing['calculated'][source_id].remove((time - window, time))
+                if (time - window, time) in missing[source_id]:
+                    missing[source_id].remove((time - window, time))
         
-        for source_id in missing['calculated']:
-            while missing['calculated'][source_id]:
-                start_time, end_time = missing['calculated'][source_id].pop()
+        for source_id in missing:
+            while missing[source_id]:
+                start_time, end_time = missing[source_id].pop()
                 resolve(source_id, start_time, end_time)
