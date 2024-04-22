@@ -1,9 +1,8 @@
-import datetime
 import logging
 
 import sys, traceback
 
-from .utils import human_time, get_callable, merge_intervals, align_start_time, f_timestamp
+from .utils import human_time, get_callable
 
 class DataHandler:
     class FeatureCalculationError(Exception):

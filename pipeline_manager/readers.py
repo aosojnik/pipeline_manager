@@ -1,8 +1,6 @@
 import csv, json, http.client, os.path
 from urllib.parse import urlencode
 
-import datetime
-
 from .utils import f_timestamp
 
 class Reader():

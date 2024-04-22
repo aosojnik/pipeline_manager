@@ -1,0 +1,8 @@
+[project]
+name = "pipeline_manager"
+version = "2024.4.22"
+description = "Pipeline Manager"
+
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = ["flit_core >=3.2,<4"]

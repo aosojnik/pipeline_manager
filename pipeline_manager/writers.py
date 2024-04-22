@@ -1,6 +1,4 @@
-import csv
-import datetime
-import json
+import csv, datetime, json
 
 class Writer:
     def __init__(self, location_id):

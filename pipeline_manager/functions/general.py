@@ -1,4 +1,4 @@
-from ...utils import human_time, profile_lookup
+from ..utils import human_time, profile_lookup
 from datetime import datetime
 import pytz
 
