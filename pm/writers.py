@@ -76,11 +76,9 @@ class JSONWriter(Writer):
         o = {
             'sourceId': source_id,
             'locationId': self.location_id,
-            'data': {
-                'timestamp': timestamp,
-                'timestep': timestep,
-                'measurements': [value]
-            }
+            'timestamp': timestamp,
+            'timestep': timestep,
+            'values': [value]
         }
         return o
 

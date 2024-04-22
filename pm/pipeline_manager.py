@@ -226,7 +226,7 @@ class PipelineManager(DataHandler):
             self.print("Calculated missing requirements.", 2)
             try:
                 self.calculate_unmet(missing)
-                self.print("Calculated unmet  inputs.", 2)
+                self.print("Calculated unmet inputs.", 2)
             except Exception as e:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
