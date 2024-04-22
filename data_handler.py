@@ -5,8 +5,6 @@ import sys, traceback
 
 from .utils import human_time, get_callable, merge_intervals, align_start_time, f_timestamp
 
-from . import features
-
 class DataHandler:
     class FeatureCalculationError(Exception):
         def __init__(self, source_id, time, window, inputs, exc, desc=""):
@@ -21,7 +19,7 @@ class DataHandler:
         def __str__(self):
             return f"Error calculating feature {self.source_id} for time {self.time} and window {self.window} ({repr(self.exc)}){self.desc}"
 
-    def __init__(self, location_id, data_input, data_output, profile={}, verbosity=0, force_calculate=[]):
+    def __init__(self, location_id, data_input, data_output, features, profile={}, verbosity=0, force_calculate=[]):
         self.location_id = location_id
 
         self.data_input = data_input
@@ -29,6 +27,8 @@ class DataHandler:
 
         self.data_output = data_output
         self.data_output.set_logger(self)
+        
+        self.features = features
 
         self.profile = profile
 
@@ -93,7 +93,7 @@ class DataHandler:
             pass
 
     def s_type(self, source_id):
-        return 'calculated' if source_id in features.FEATURES else 'raw'
+        return 'calculated' if source_id in self.features else 'raw'
 
     def request_dependencies(self, source_id, start_time, end_time, dependencies, missings, force_fetch=False):
         def dependency(start, end):
@@ -122,7 +122,7 @@ class DataHandler:
             elif typ == 'calculated':
 
                 # Calculated features are broken into intervals based on their own windows
-                definition = features.FEATURES[source_id]
+                definition = self.features[source_id]
                 f_window = human_time(definition['window'])
 
                 # If a feature has a window of 0, it can calculate the entire window at once
@@ -179,7 +179,7 @@ class DataHandler:
 
     def calculate_unmet(self, missing, force_store=set()):
         def resolve(source_id, start_time, end_time):
-            feature = features.FEATURES[source_id]
+            feature = self.features[source_id]
             window = human_time(feature['window'])
             if window == 0:
                 # if window = 0, calculate the entire interval in one go

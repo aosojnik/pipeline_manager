@@ -7,8 +7,6 @@ import pytz
 from .models.lib import proDEX
 from .models.lib.utils import model_type, probabilify, sample_from_distribution
 
-from . import features
-
 from .utils import get_callable, human_time, merge_intervals, f_timestamp
 
 from .data_handler import DataHandler
@@ -87,8 +85,8 @@ class PipelineManager(DataHandler):
             return "Model not found: " + self.missing
         pass
 
-    def __init__(self, location_id, data_input, data_output, pipeline, profile={}, forced_time=None, verbosity=0, force_calculate=[]):
-        super().__init__(location_id, data_input, data_output, profile=profile, force_calculate=force_calculate, verbosity=verbosity)
+    def __init__(self, location_id, data_input, data_output, pipeline, features, profile={}, forced_time=None, verbosity=0, force_calculate=[]):
+        super().__init__(location_id, data_input, data_output, features, profile=profile, force_calculate=force_calculate, verbosity=verbosity)
 
         self.pipeline = pipeline
         self.pipeline_name = pipeline['name']
@@ -271,7 +269,7 @@ class PipelineManager(DataHandler):
             if f_type == 'raw':
                 pass
             elif f_type == 'calculated':
-                definition = features.FEATURES[source_id]
+                definition = self.features[source_id]
                 for inpt in definition['inputs']:
                     if isinstance(inpt, tuple):
                         in_source_id = inpt[0]
@@ -328,7 +326,7 @@ class PipelineManager(DataHandler):
                 dependee.add_dependency(node)
             elif f_type == 'calculated':
                 # Calculated features are broken into intervals based on their own windows
-                definition = features.FEATURES[source_id]
+                definition = self.features[source_id]
                 f_window = human_time(definition['window'])
 
                 if f_window == 0:
@@ -407,7 +405,7 @@ class PipelineManager(DataHandler):
                 unmet_intervals = [(n.start_time, n.end_time) for n in unmet_nodes]
 
                 unmet_merged = merge_intervals(unmet_intervals)
-                if not f_type == "calculated" or features.FEATURES[source_id].get('store', False):
+                if not f_type == "calculated" or self.features[source_id].get('store', False):
                     for start, end in unmet_merged:
                         self.print(f"Querying {source_id}: {datetime.datetime.fromtimestamp(start)} -- {datetime.datetime.fromtimestamp(end)}", 5)
                         self.query_db(source_id, start, end)
