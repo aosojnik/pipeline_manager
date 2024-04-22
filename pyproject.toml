@@ -2,6 +2,10 @@
 name = "pipeline_manager"
 version = "2024.4.22"
 description = "Pipeline Manager"
+dependencies = [
+    "pytz",
+    "joblib"
+]
 
 [build-system]
 build-backend = "flit_core.buildapi"
