@@ -304,3 +304,47 @@ def undateify(val):
         return str(val)
     else:
         return val
+
+class MultiReader:
+    def __init__(self, *readers):
+        self._READERS = readers
+        
+    def __str__(self):
+        return f"MultiReader({','.join(str(r) for r in self._READERS)})"
+    
+    def set_logger(self, logger):
+        for r in self._READERS:
+            r.set_logger(logger)
+            
+    def load(self):
+        for r in self._READERS:
+            r.load()
+    
+    def __enter__(self):
+        self.load()
+        for r in self._READERS:
+            r.__enter__()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for r in self._READERS:
+            try:
+                exit(r)
+            except:
+                continue
+
+    def __contains__(self, item):
+        for r in self._READERS:
+            if item in r:
+                return True
+        return False
+    
+    def is_online(self):
+        for r in self._READERS:
+            if r.is_online():
+                return True
+        return False
+    
+    def add_entries(self, source_id, entries):
+        self._READERS[0].add_entries(source_id, entries)
+        
