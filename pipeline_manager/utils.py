@@ -1,4 +1,5 @@
 import re, datetime, pytz, sys
+from functools import cache
 
 
 p = re.compile(r"(\d+)(d|h|m|s|ms)")
@@ -52,9 +53,7 @@ def align_start_time(start_time, window, offset=0):
 def align_end_time(end_time, window, offset=0):
     return offset + ((end_time - offset) // window) * window
     
-
-
-
+@cache
 def get_profile():
     from .data_handler import DataHandler
 

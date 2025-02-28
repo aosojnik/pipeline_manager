@@ -5,6 +5,9 @@ import sys, traceback
 from .utils import human_time, get_callable
 
 class DataHandler:
+    
+    force_calculate : list
+    
     class FeatureCalculationError(Exception):
         def __init__(self, source_id, time, window, inputs, exc, desc=""):
             self.source_id = source_id
@@ -13,7 +16,6 @@ class DataHandler:
             self.inputs = inputs
             self.exc = exc
             self.desc = desc
-
         
         def __str__(self):
             return f"Error calculating feature {self.source_id} for time {self.time} and window {self.window} ({repr(self.exc)}){self.desc}"
@@ -67,22 +69,10 @@ class DataHandler:
         if w:
             w.warnings.append(f"[{w.current_calculation if w.current_calculation else w.__class__}] {message}")
 
-    def print(self, text, min_verbosity=1):
+    def print(self, text, min_verbosity=1, **kwargs):
         if self.verbosity >= min_verbosity:
-            print(text)
-        # Verbosity could be set for each environment from the logging.Envname.ini
-        # If verbosity is set to WARNING only log entries with warning or above will be logged
-        # 
-        # LogLevel Values
-        # 
-        # CRITICAL 50
-        # ERROR 40
-        # WARNING 30
-        # INFO 20
-        # DEBUG 10
-        # NONE 0
-        # 
-        logging.debug(text) if min_verbosity == 5 else logging.info(text)
+            print(text, **kwargs)
+        #logging.debug(text) if min_verbosity == 5 else logging.info(text)
 
     def query_db(self, source_id, start_time, end_time):
         if self.data_input.is_online():
@@ -176,8 +166,9 @@ class DataHandler:
                     
                     # time += pipeline_window
 
-    def calculate_unmet(self, missing, force_store=set()):
-        def resolve(source_id, start_time, end_time):
+    def calculate_unmet(self, time_dependency, force_store=set()):
+        def resolve(dependency_node):
+            source_id, start_time, end_time = dependency_node.source_id, dependency_node.start_time, dependency_node.end_time
             feature = self.features[source_id]
             window = human_time(feature['window'])
             if window == 0:
@@ -191,19 +182,10 @@ class DataHandler:
 
                 inputs = {}
 
-                for inpt in feature['inputs']:
-                    if isinstance(inpt, str):
-                        in_source_id, in_window = inpt, window
-                    else:
-                        in_source_id, in_window = inpt[0], human_time(inpt[1])
-                    in_source_type = self.s_type(in_source_id)
-                    if in_source_type == 'calculated' and in_source_id in missing['calculated'] and \
-                       (time - in_window, time) in missing['calculated'][in_source_id]:
-                        resolve(in_source_id, time - in_window, time)
-                    
-                    if in_source_id not in inputs:
-                        inputs[in_source_id] = []
-                    inputs[in_source_id] += self.data_input[in_source_id, time - in_window:time]
+                for dependency in dependency_node.dependencies:
+                    if not dependency.met:
+                        resolve(dependency)
+                    inputs[dependency.source_id] = sorted(inputs.get(dependency.source_id, []) + self.data_input[dependency.source_id, dependency.start_time:dependency.end_time])
 
                 self.print(f"Calculating feature {source_id}.", 4)
                 # Load the function that calculates the value
@@ -235,10 +217,8 @@ class DataHandler:
                 # the database are not necessary
                 self.print(f"Storing feature {source_id} into the cache.", 4)  
                 self.data_input.add_entries(source_id, data_points)
-                if (time - window, time) in missing[source_id]:
-                    missing[source_id].remove((time - window, time))
+                dependency_node.meet()
         
-        for source_id in missing:
-            while missing[source_id]:
-                start_time, end_time = missing[source_id].pop()
-                resolve(source_id, start_time, end_time)
+        for node in time_dependency.walk():
+            if not node.met:
+                resolve(node)

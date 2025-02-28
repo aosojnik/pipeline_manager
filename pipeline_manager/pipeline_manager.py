@@ -4,72 +4,103 @@ from .utils import human_time, merge_intervals, f_timestamp
 
 from .data_handler import DataHandler
 
-class FeatureNode:
-    NODES = {}
-
-    def __init__(self, source_id):
-        self.source_id = source_id
-        self.dependencies = []
-        self.dependees = []
-
-    def __str__(self):
-        return f'<FN: {self.source_id}>'
-
-    def __repr__(self):
-        return str(self)
-
-    def add_dependency(self, node):
-        if node not in self.dependencies:
-            self.dependencies.append(node)
-        if self not in node.dependees:
-            node.dependees.append(self)
-
-    @staticmethod
-    def create_node(source_id):
-        if source_id not in FeatureNode.NODES:
-            node = FeatureNode(source_id)
-            FeatureNode.NODES[source_id] = node
-        else:
-            node = FeatureNode.NODES[source_id]
-        return node
-
-
-class DependencyNode:
-    NODES = {}
-
-    def __init__(self, source_id, start_time, end_time):
-        self.source_id = source_id
-        self.start_time = start_time
-        self.end_time = end_time
-        self.dependencies = []
-        self.dependees = []
-        self.met = False
-
-    def __str__(self):
-        return f'<{self.source_id} - {self.start_time} : {self.end_time}>'
-
-    def __repr__(self):
-        return str(self)
-
-    def add_dependency(self, node):
-        if node not in self.dependencies:
-            self.dependencies.append(node)
-        if self not in node.dependees:
-            node.dependees.append(self)
-
-    @staticmethod
-    def create_node(source_id, start_time, end_time):
-        if source_id not in DependencyNode.NODES:
-            DependencyNode.NODES[source_id] = {}
-        if (start_time, end_time) not in DependencyNode.NODES[source_id]:
-            node = DependencyNode(source_id, start_time, end_time)
-            DependencyNode.NODES[source_id][(start_time, end_time)] = node
-        else:
-            node = DependencyNode.NODES[source_id][(start_time, end_time)]
-        return node
-
-
 class PipelineManager(DataHandler):
+   
+    force_calculate : list
+   
+    class FeatureNode:
+        __NODES = {}
+
+        def __init__(self, source_id):
+            self.source_id = source_id
+            self.dependencies = []
+            self.dependees = []
+
+        def __str__(self):
+            return f'<FN: {self.source_id}>'
+
+        def __repr__(self):
+            return str(self)
+
+        def add_dependency(self, node):
+            if node not in self.dependencies:
+                self.dependencies.append(node)
+            if self not in node.dependees:
+                node.dependees.append(self)
+
+        @staticmethod
+        def create_node(source_id):
+            if source_id not in PipelineManager.FeatureNode.__NODES:
+                node = PipelineManager.FeatureNode(source_id)
+                PipelineManager.FeatureNode.__NODES[source_id] = node
+            else:
+                node = PipelineManager.FeatureNode.__NODES[source_id]
+            return node
+
+        @staticmethod
+        def reset():
+            PipelineManager.FeatureNode.__NODES = {}
+
+        def walk(self):
+            queue = [self]
+            while queue:
+                node = queue.pop(0) 
+                queue += node.dependencies
+                if node.source_id != '@':
+                    yield node
+
+    class DependencyNode:
+        __NODES = {}
+
+        def __init__(self, source_id, start_time, end_time):
+            self.source_id = source_id
+            self.start_time = start_time
+            self.end_time = end_time
+            self.dependencies = []
+            self.dependees = []
+            self.met = False
+
+        def __str__(self):
+            return f'<{self.source_id} - {self.start_time} : {self.end_time}>'
+
+        def __repr__(self):
+            return str(self)
+
+        def add_dependency(self, node):
+            if node not in self.dependencies:
+                self.dependencies.append(node)
+            if self not in node.dependees:
+                node.dependees.append(self)
+                
+        def meet(self):
+            self.met = True
+
+        @staticmethod
+        def create_node(source_id, start_time, end_time):
+            if source_id not in PipelineManager.DependencyNode.__NODES:
+                PipelineManager.DependencyNode.__NODES[source_id] = {}
+            if (start_time, end_time) not in PipelineManager.DependencyNode.__NODES[source_id]:
+                node = PipelineManager.DependencyNode(source_id, start_time, end_time)
+                PipelineManager.DependencyNode.__NODES[source_id][(start_time, end_time)] = node
+            else:
+                node = PipelineManager.DependencyNode.__NODES[source_id][(start_time, end_time)]
+            return node
+        
+        @staticmethod
+        def reset():
+            PipelineManager.DependencyNode.__NODES = {}
+            
+        @staticmethod
+        def get_nodes(source_id):
+            return PipelineManager.DependencyNode.__NODES.get(source_id, {})
+        
+        def walk(self):
+            queue = [self]
+            while queue:
+                node = queue.pop(0) 
+                queue += node.dependencies
+                if node.source_id != '@':
+                    yield node
 
     class ModelNotFoundError(Exception):
         def __init__(self, missing):
@@ -85,6 +116,8 @@ class PipelineManager(DataHandler):
         self.pipeline_name = pipeline['name']
         
         self.forced_time = forced_time
+        
+        PipelineManager.force_calculate = force_calculate
 
     def get_time(self):
         if self.forced_time is None:
@@ -223,7 +256,7 @@ class PipelineManager(DataHandler):
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 error_message = f"{exc_type}: {str(e)}, {fname}, {exc_tb.tb_lineno}\n{traceback.format_exc()}"
                 self.print(f"FEATURE CALCULATION ERROR, EXECUTION DISRUPTED")
-                self.print(e, 2)
+                self.print(error_message, 2)
                 raise e
 
             self.print(f"PIPELINE EXECUTION SUCCESSFUL")
@@ -235,14 +268,19 @@ class PipelineManager(DataHandler):
             self.print(f"UNKNOWN ERROR, EXECUTION DISRUPTED")
             self.print(e, 2)
             raise e
-        pipeline_outputs = []
-        for output in self.pipeline['outputs']:
-            pipeline_outputs.append({
-                'output': output,
-                'values': self.data_input[output, runtime]
-            })
+        pipeline_outputs = {}
+        #for output in self.pipeline['outputs']:
+        for output_node in missing.dependencies:
+            output = output_node.source_id
+            end_time = output_node.end_time
 
-        self.print(f"Outputs of the models: \033[1;32;49m{pipeline_outputs}\u001b[0m", 1)
+            pipeline_outputs[output] = pipeline_outputs.get(output, [])
+            pipeline_outputs[output].append(self.data_input[output, end_time])
+
+        self.print(f"Outputs of the models:", 1)
+        for output, values in pipeline_outputs.items():
+            self.print(f"\033[1;33;49m{output}: \033[1;32;49m{values}", 1)
+        self.print("\u001b[0m", 1)
         self.print(f"Execution done at {datetime.datetime.utcnow()}", 2)
         return pipeline_outputs
 
@@ -250,12 +288,12 @@ class PipelineManager(DataHandler):
         # Calculate feature dependency hierarchy
 
         # Reset the dependency between pipeline executions
-        FeatureNode.NODES = {}
+        PipelineManager.FeatureNode.reset()
 
-        root = FeatureNode.create_node('@')
+        root = PipelineManager.FeatureNode.create_node('@')
         
         def recurse_dependency(source_id):
-            node = FeatureNode.create_node(source_id)
+            node = PipelineManager.FeatureNode.create_node(source_id)
             
             f_type = self.s_type(source_id)
 
@@ -293,29 +331,29 @@ class PipelineManager(DataHandler):
                 node = recurse_dependency(parameter)
                 root.add_dependency(node)
 
-        DEPTHS = {}
+        # DEPTHS = {}
 
-        nodes = root.dependencies[:]
-        DEPTHS['@'] = 0
-        while nodes:
-            node = nodes.pop(0)
-            DEPTHS[node.source_id] = max(DEPTHS[d.source_id] for d in node.dependees if d.source_id in DEPTHS) + 1
-            nodes += node.dependencies
+        # nodes = root.dependencies[:]
+        # DEPTHS['@'] = 0
+        # while nodes:
+        #     node = nodes.pop(0)
+        #     DEPTHS[node.source_id] = max(DEPTHS[d.source_id] for d in node.dependees if d.source_id in DEPTHS) + 1
+        #     nodes += node.dependencies
 
-        return DEPTHS
+        return root
 
 
     def generate_time_dependency(self, end):
 
         # Reset the dependency between pipeline executions
-        DependencyNode.NODES = {}
+        PipelineManager.DependencyNode.reset()
 
         def recursive_dependency(source_id, start_time, end_time, dependee):
             f_type = self.s_type(source_id)
 
             if f_type == 'raw':
                 # Raw dependencies are added as complete intervals
-                node = DependencyNode.create_node(source_id, start_time, end_time)
+                node = PipelineManager.DependencyNode.create_node(source_id, start_time, end_time)
                 dependee.add_dependency(node)
             elif f_type == 'calculated':
                 # Calculated features are broken into intervals based on their own windows
@@ -328,7 +366,7 @@ class PipelineManager(DataHandler):
                 time = start_time
 
                 while time + f_window <= end_time: # Assume perfect divisibility of intervals
-                    node = DependencyNode.create_node(source_id, time, time + f_window)
+                    node = PipelineManager.DependencyNode.create_node(source_id, time, time + f_window)
                     dependee.add_dependency(node)
                     for inpt in definition['inputs']:
                         if isinstance(inpt, tuple):
@@ -339,31 +377,9 @@ class PipelineManager(DataHandler):
                             in_window = f_window
                         recursive_dependency(in_source_id, time + f_window - in_window, time + f_window, node)
                     time += f_window
-            elif f_type == 'model':
-                pass
-                # -------------- DEPERECATED ------------
-                # # Model dependency
-                # model = self._MODELS[source_id]
-
-                # # TODO Make this work also for the Feature calculator
-                # pipeline_window = human_time(self.pipeline['recurrence'] if isinstance(self.pipeline['recurrence'], str) else self.pipeline['recurrence']['period'])
-
-                # node = DependencyNode.create_node(source_id, start_time, end_time)
-                # dependee.add_dependency(node)
-
-                # for inpt in model['inputs']:
-                #     if isinstance(inpt, tuple):
-                #         source_id = inpt[0]
-                #         window = human_time(inpt[1])
-                #     else:
-                #         source_id = inpt
-                #         window = pipeline_window
-                #     # TODO Reslove input timing inconsistencies
-                #     recursive_dependency(source_id, start_time, end_time, node)
-
         start = end - self.pipeline_window()
 
-        root = DependencyNode.create_node('@', start, end) # @ represents the entire pipeline
+        root = PipelineManager.DependencyNode.create_node('@', start, end) # @ represents the entire pipeline
 
         for output in self.pipeline['outputs']:
             recursive_dependency(output, start, end, root)
@@ -376,41 +392,32 @@ class PipelineManager(DataHandler):
 
 
     def smart_request_dependencies(self, runtime):
-        feature_depths = self.generate_feature_dependency()
+        feature_dependency = self.generate_feature_dependency()
 
-        # Calculate features' depth according to the 
-        by_depth = {}
-        for s, d in feature_depths.items():
-            if d != 0:
-                by_depth[d] = by_depth.get(d, set()) | {s}
+        time_dependency = self.generate_time_dependency(runtime)
 
-        self.generate_time_dependency(runtime)
+        for dependency in feature_dependency.walk():
+            if dependency.source_id == '@':
+                continue
+            source_id = dependency.source_id
+            f_type = self.s_type(source_id)
 
-        missing = {}
+            # Calculate all unmet nodes for this source_id
+            unmet_nodes = [n for n in PipelineManager.DependencyNode.get_nodes(source_id).values() \
+                            if source_id in self.force_calculate or (not n.met) and any(not d.met for d in n.dependees)]
+            unmet_intervals = [(n.start_time, n.end_time) for n in unmet_nodes]
 
-        for depth in sorted(by_depth.keys()):
-            for source_id in by_depth[depth]:
-                f_type = self.s_type(source_id)
-
-                # Calculate all unmet nodes for this source_id
-                unmet_nodes = [n for n in DependencyNode.NODES[source_id].values() \
-                               if source_id in self.force_calculate or (not n.met) and any(not d.met for d in n.dependees)]
-                unmet_intervals = [(n.start_time, n.end_time) for n in unmet_nodes]
-
-                unmet_merged = merge_intervals(unmet_intervals)
-                if not f_type == "calculated" or self.features[source_id].get('store', False):
-                    for start, end in unmet_merged:
-                        self.print(f"Querying {source_id}: {datetime.datetime.fromtimestamp(start)} -- {datetime.datetime.fromtimestamp(end)}", 5)
-                        self.query_db(source_id, start, end)
+            unmet_merged = merge_intervals(unmet_intervals)
+            if not f_type == "calculated" or self.features[source_id].get('store', False):
+                for start, end in unmet_merged:
+                    self.print(f"Querying {source_id}: {datetime.datetime.fromtimestamp(start)} -- {datetime.datetime.fromtimestamp(end)}", 5)
+                    self.query_db(source_id, start, end)
+            
+            # Check if data was found for any unmet nodes
+            for unmet_node in unmet_nodes:
+                if self.data_input[source_id, unmet_node.start_time:unmet_node.end_time] and source_id not in self.force_calculate:
+                    unmet_node.meet()
                 
-                if f_type != "raw":
-                    # Check if data was found for any unmet nodes
-                    for unmet_node in unmet_nodes:
-                        if self.data_input[source_id, unmet_node.start_time:unmet_node.end_time] and source_id not in self.force_calculate:
-                            unmet_node.met = True
-                        else:
-                            if source_id not in missing:
-                                missing[source_id] = set()
-                            missing[source_id].add( (unmet_node.start_time, unmet_node.end_time) )
-                
-        return missing
+                            
+               
+        return time_dependency
