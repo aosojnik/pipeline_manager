@@ -224,7 +224,8 @@ class PipelineManager(DataHandler):
 
     def run(self):
         self.print(f"---- RUNNING PIPELINE {self.pipeline_name} FOR LOCATION {self.location_id} ----", 1)
-        self.print(f"Starting at {datetime.datetime.utcnow()}", 2)
+        start_time = datetime.datetime.utcnow()
+        self.print(f"Starting at {start_time}", 2)
         try:
             runtime = self.calculate_runtime()
             self.print(f"Calculated runtime {f_timestamp(runtime)}.", 1)
@@ -275,13 +276,15 @@ class PipelineManager(DataHandler):
             end_time = output_node.end_time
 
             pipeline_outputs[output] = pipeline_outputs.get(output, [])
-            pipeline_outputs[output].append(self.data_input[output, end_time])
+            pipeline_outputs[output] += self.data_input[output, end_time]
 
-        self.print(f"Outputs of the models:", 1)
+        end_time = datetime.datetime.utcnow()
+
+        self.print(f"Outputs:", 1)
         for output, values in pipeline_outputs.items():
             self.print(f"\033[1;33;49m{output}: \033[1;32;49m{values}", 1)
         self.print("\u001b[0m", 1)
-        self.print(f"Execution done at {datetime.datetime.utcnow()}", 2)
+        self.print(f"Execution done at {end_time} (execution time: {(end_time - start_time).total_seconds()})", 2)
         return pipeline_outputs
 
     def generate_feature_dependency(self):
