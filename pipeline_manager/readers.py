@@ -4,8 +4,7 @@ from urllib.parse import urlencode
 from .utils import f_timestamp
 
 class Reader():
-    def __init__(self, location_id):
-        self.location_id = location_id
+    def __init__(self):
         self._DATA = {}
 
     def __str__(self):
@@ -94,7 +93,8 @@ class CSVReader(Reader):
 
 class JSONReader__SAAM(Reader):
     def __init__(self, location_id, targets):
-        super().__init__(location_id)
+        super().__init__()
+        self.location_id = location_id
         self.targets = targets
 
     def is_online(self):
@@ -123,7 +123,8 @@ class JSONReader__SAAM(Reader):
 
 class JSONReader(Reader):
     def __init__(self, location_id, targets):
-        super().__init__(location_id)
+        super().__init__()
+        self.location_id = location_id
         self.targets = targets
 
     def is_online(self):
@@ -153,7 +154,8 @@ class JSONReader(Reader):
 
 class HTTPReader(Reader):
     def __init__(self, location_id, connection_settings):
-        super().__init__(location_id)
+        super().__init__()
+        self.location_id = location_id
         self.settings = connection_settings
 
     def load(self):
@@ -226,7 +228,8 @@ class HTTPReader(Reader):
 
 class CachedReader(Reader):
     def __init__(self, cache_token, reader):
-        super().__init__(reader.location_id)
+        super().__init__()
+        self.location_id = reader.location_id
         self.cache_token = cache_token
         if os.path.exists(f'cache/{self.cache_token}.json'):
             self.reader = JSONReader(self.location_id, [f'cache/{self.cache_token}.json'])
@@ -338,13 +341,25 @@ class MultiReader:
             if item in r:
                 return True
         return False
-    
+
+    def __getitem__(self, item):
+        out = []
+        for r in self._READERS:
+            out.append(r[item])
+        return out
+
+
     def is_online(self):
         for r in self._READERS:
             if r.is_online():
                 return True
         return False
     
+    def query(self, source_id, start_time, end_time):
+        for r in self._READERS:
+            r.query(source_id, start_time, end_time)
+
     def add_entries(self, source_id, entries):
+        # inject the entries only into the first reader
         self._READERS[0].add_entries(source_id, entries)
         
