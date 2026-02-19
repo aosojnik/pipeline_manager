@@ -345,7 +345,7 @@ class MultiReader:
     def __getitem__(self, item):
         out = []
         for r in self._READERS:
-            out.append(r[item])
+            out += r.__getitem__(item)
         return out
 
 
