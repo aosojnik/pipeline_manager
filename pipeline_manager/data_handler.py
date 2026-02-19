@@ -169,6 +169,10 @@ class DataHandler:
     def calculate_unmet(self, time_dependency, force_store=set()):
         def resolve(dependency_node):
             source_id, start_time, end_time = dependency_node.source_id, dependency_node.start_time, dependency_node.end_time
+            if self.s_type(source_id) == 'raw':
+                # If a raw source is missing, nothing is to be done
+                dependency_node.meet()
+                return
             feature = self.features[source_id]
             window = human_time(feature['window'])
             if window == 0:
