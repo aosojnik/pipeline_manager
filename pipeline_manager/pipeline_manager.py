@@ -285,7 +285,7 @@ class PipelineManager(DataHandler):
             self.print(f"\033[1;33;49m{output}: \033[1;32;49m{values}", 1)
         self.print("\u001b[0m", 1)
         self.print(f"Execution done at {end_time} (execution time: {(end_time - start_time).total_seconds()})", 2)
-        return pipeline_outputs
+        return runtime, pipeline_outputs
 
     def generate_feature_dependency(self):
         # Calculate feature dependency hierarchy
