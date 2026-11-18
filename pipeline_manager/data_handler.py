@@ -3,6 +3,7 @@ import logging
 import sys, traceback
 
 from .utils import human_time, get_callable
+from .cache import Cache
 
 class DataHandler:
     
@@ -26,6 +27,8 @@ class DataHandler:
         self.data_input = data_input
         self.data_input.set_logger(self)
 
+        self.cache = Cache()
+
         self.data_output = data_output
         self.data_output.set_logger(self)
         
@@ -42,6 +45,9 @@ class DataHandler:
         self.load_profile()
 
         self.current_calculation = None
+
+    def get_data(self, source_id, target_time):
+        return sorted(self.data_input[source_id, target_time] + self.cache[source_id, target_time])
 
     def load_profile(self):
         # Add time zone into profile if missing
@@ -189,7 +195,7 @@ class DataHandler:
                 for dependency in dependency_node.dependencies:
                     if not dependency.met:
                         resolve(dependency)
-                    inputs[dependency.source_id] = sorted(inputs.get(dependency.source_id, []) + self.data_input[dependency.source_id, dependency.start_time:dependency.end_time])
+                    inputs[dependency.source_id] = sorted(inputs.get(dependency.source_id, []) + self.get_data(dependency.source_id, slice(dependency.start_time, dependency.end_time)))
 
                 self.print(f"Calculating feature {source_id}.", 4)
                 # Load the function that calculates the value
@@ -201,7 +207,7 @@ class DataHandler:
                 except Exception as e:
                     if 'default' in feature:
                         data_points = [(time, window, feature['default'])]
-                        DataHandler.warning(f"Used default value!")
+                        DataHandler.warning(f"Used default value for {source_id} at {time}!")
                     else:
                         raise DataHandler.FeatureCalculationError(source_id, time, window, inputs, e, desc=f"\n{traceback.format_exc()}")
                 finally:
@@ -220,7 +226,7 @@ class DataHandler:
                 # All values are stored into the cache, so repeated lookups into
                 # the database are not necessary
                 self.print(f"Storing feature {source_id} into the cache.", 4)  
-                self.data_input.add_entries(source_id, data_points)
+                self.cache.add_entries(source_id, data_points)
                 dependency_node.meet()
         
         for node in time_dependency.walk():

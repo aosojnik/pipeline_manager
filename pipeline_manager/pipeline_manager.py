@@ -276,7 +276,7 @@ class PipelineManager(DataHandler):
             end_time = output_node.end_time
 
             pipeline_outputs[output] = pipeline_outputs.get(output, [])
-            pipeline_outputs[output] += self.data_input[output, end_time]
+            pipeline_outputs[output] += self.get_data(output, end_time)
 
         end_time = datetime.datetime.utcnow()
 

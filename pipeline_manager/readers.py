@@ -27,7 +27,7 @@ class Reader():
                 end = target_time.stop
                 return sorted([val for time, val in self._DATA[source_id].items() if start < time <= end])
             else:
-                return [ self._DATA[source_id][target_time] ]
+                return [ self._DATA[source_id][target_time] ] if target_time in self._DATA[source_id] else []
         else:
             return []
 
