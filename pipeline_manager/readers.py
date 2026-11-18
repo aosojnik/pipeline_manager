@@ -345,7 +345,10 @@ class MultiReader:
     def __getitem__(self, item):
         out = []
         for r in self._READERS:
-            out += r.__getitem__(item)
+            try:
+                out += r.__getitem__(item)
+            except KeyError:
+                pass
         return out
 
 
